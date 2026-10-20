@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>명함 매니저</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: 상단 도구 막대 + 실물 명함 구성을 닮은 타일 그리드, 작업은 오버레이 패널에서 */
+  :root {
+    --bg: #f1f3f6; --surface: #ffffff; --surface-2: #e9edf3; --line: #d5dbe4;
+    --fg: #17202b; --muted: #5b6676; --accent: #1f4fd1; --accent-fg: #ffffff; --accent-soft: #e2e9fb;
+    --danger: #b42323; --danger-soft: #fae6e6; --ok: #1d7347;
+    --scrim: rgba(14, 20, 30, 0.58);
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 6px 20px rgba(16, 24, 40, 0.07);
+    --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --r: 12px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1218; --surface: #161b23; --surface-2: #1d242f; --line: #2a3240;
+      --fg: #e6eaf0; --muted: #98a3b3; --accent: #7fa3ff; --accent-fg: #0a1020; --accent-soft: #1b2744;
+      --danger: #f08a8a; --danger-soft: #3a1d20; --ok: #62c597;
+      --scrim: rgba(0, 0, 0, 0.66); --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--font-body);
+    font-size: 15px; line-height: 1.55;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: calc(24px + env(safe-area-inset-top, 0px)) calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+  body.locked { overflow: hidden; }
+  .wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 18px; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ico { width: 18px; height: 18px; flex: none; }
+
+  .head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+  .head h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; }
+  .head h1 .ico { width: 28px; height: 28px; color: var(--accent); }
+  .head p { margin: 4px 0 0; color: var(--muted); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 12.5px; font-weight: 500; }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 0 16px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14.5px;
+  }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tools .sep { flex: 1; }
+  @media (max-width: 640px) {
+    .tools .btn.primary { flex: 1 1 100%; min-height: 52px; font-size: 16px; }
+    .tools .sep { display: none; }
+    .tools .btn:not(.primary) { flex: 1 1 calc(50% - 4px); }
+  }
+
+  .search { position: relative; }
+  .search .ico { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+  .search input { width: 100%; min-height: 48px; padding: 0 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 15.5px; }
+  .search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .search .clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); min-height: 36px; padding: 0 8px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  .bcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 16px 18px 12px; display: grid; gap: 10px; min-width: 0; }
+  .bcard .co { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; min-height: 18px; overflow-wrap: anywhere; }
+  .bcard .nm { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere; }
+  .bcard .pos { font-size: 13.5px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+  .bcard .lines { display: grid; gap: 4px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+  .line .ico { width: 15px; height: 15px; color: var(--muted); }
+  .line .val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .line .val.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  .line a { color: var(--accent); text-decoration: none; }
+  .line a:hover { text-decoration: underline; }
+  .mini { min-height: 34px; min-width: 34px; padding: 0 6px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+  .mini:hover { background: var(--surface-2); color: var(--fg); }
+  .mini .ico { width: 16px; height: 16px; }
+  .mini.del:hover { color: var(--danger); background: var(--danger-soft); }
+  .memo { font-size: 13px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .bcard .acts { display: flex; justify-content: flex-end; gap: 2px; margin-top: -2px; }
+
+  .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--r); padding: 40px 20px; text-align: center; display: grid; gap: 10px; justify-items: center; }
+  .empty .ico { width: 36px; height: 36px; color: var(--accent); }
+  .empty h2 { margin: 0; font-size: 18px; }
+  .empty p { margin: 0; color: var(--muted); max-width: 44ch; }
+
+  .overlay {
+    position: fixed; inset: 0; z-index: 50; background: var(--scrim);
+    display: flex; align-items: center; justify-content: center;
+    padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  }
+  .panel { background: var(--surface); border-radius: 16px; width: 100%; max-width: 520px; max-height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25); }
+  .panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .panel header h2 { margin: 0; font-size: 19px; }
+  .panel .body { padding: 18px 20px; overflow-y: auto; display: grid; gap: 14px; }
+  .panel footer { display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+  .panel footer .btn { flex: 1; }
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+  .field input, .field textarea { width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 15.5px; }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field textarea { min-height: 96px; resize: vertical; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 420px) { .row2 { grid-template-columns: 1fr; } }
+  .preview { position: relative; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+  .preview img { display: block; width: 100%; max-height: 180px; object-fit: contain; }
+  .preview span { position: absolute; left: 8px; bottom: 8px; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: var(--surface); color: var(--fg); }
+  .note { font-size: 13px; color: var(--muted); margin: 0; }
+  details.raw summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.raw pre { margin: 8px 0 0; padding: 10px; background: var(--surface-2); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+
+  /* 실시간 카메라 */
+  .cam { position: fixed; inset: 0; z-index: 60; background: #000; display: flex; flex-direction: column; }
+  .cam .view { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .cam video { width: 100%; height: 100%; object-fit: cover; }
+  .cam .frame { position: absolute; width: min(88%, 560px); aspect-ratio: 9 / 5; max-width: 100%; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 14px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45); pointer-events: none; }
+  .cam .frame span { position: absolute; left: 0; right: 0; top: calc(100% + 10px); text-align: center; color: #fff; font-size: 14px; font-weight: 500; }
+  .cam .bar { display: flex; align-items: center; justify-content: space-around; gap: 16px; padding: 18px max(16px, env(safe-area-inset-left, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)); background: #000; }
+  .cam .round { width: 54px; height: 54px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.14); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .cam .round .ico { width: 24px; height: 24px; }
+  .cam .shutter { width: 76px; height: 76px; border-radius: 50%; border: 5px solid #fff; background: transparent; padding: 5px; cursor: pointer; }
+  .cam .shutter i { display: block; width: 100%; height: 100%; border-radius: 50%; background: #fff; }
+  .cam .shutter:active i { transform: scale(0.92); }
+
+  /* 인식 중 */
+  .scan { max-width: 420px; padding: 20px; gap: 14px; display: grid; text-align: center; }
+  .scan .shot { position: relative; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+  .scan .shot img { display: block; width: 100%; max-height: 42vh; object-fit: contain; }
+  .scanline { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--accent); box-shadow: 0 0 14px 2px var(--accent); animation: scan 1.8s ease-in-out infinite alternate; }
+  @keyframes scan { from { top: 0; } to { top: calc(100% - 3px); } }
+  @media (prefers-reduced-motion: reduce) { .scanline { animation: none; top: 50%; } }
+  .scan h2 { margin: 0; font-size: 18px; }
+  .scan p { margin: 0; color: var(--muted); font-size: 14px; }
+  .progress { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+
+  .toasts { position: fixed; z-index: 80; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; width: min(92vw, 420px); }
+  .toast { background: var(--fg); color: var(--bg); padding: 12px 16px; border-radius: 10px; font-weight: 500; font-size: 14.5px; box-shadow: var(--shadow); transition: opacity 0.3s; }
+  .toast.err { background: var(--danger); color: var(--surface); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1><i data-lucide="contact-round" class="ico"></i>명함 매니저</h1>
+      <p id="count">명함 0장</p>
+    </div>
+    <span class="badge"><span class="dot"></span>가입 없이 사용 · 이 브라우저에 저장</span>
+  </div>
+
+  <div class="tools">
+    <!-- accept="image/*" + capture: 휴대폰 기본 카메라 앱(후면)을 바로 연다. HTTPS가 아니어도 동작 -->
+    <input type="file" id="in-camera" class="vh" accept="image/*" capture="environment">
+    <input type="file" id="in-gallery" class="vh" accept="image/*">
+    <input type="file" id="in-csv" class="vh" accept=".csv,text/csv">
+
+    <button class="btn primary" id="btn-camera"><i data-lucide="camera" class="ico"></i>명함 촬영</button>
+    <button class="btn" id="btn-gallery"><i data-lucide="image" class="ico"></i>사진 선택</button>
+    <button class="btn" id="btn-add"><i data-lucide="user-plus" class="ico"></i>직접 입력</button>
+    <span class="sep"></span>
+    <button class="btn" id="btn-import"><i data-lucide="upload" class="ico"></i>CSV 가져오기</button>
+    <button class="btn" id="btn-export"><i data-lucide="download" class="ico"></i>CSV 저장</button>
+    <button class="btn" id="btn-vcf-all"><i data-lucide="book-user" class="ico"></i>연락처 파일</button>
+  </div>
+
+  <div class="search">
+    <i data-lucide="search" class="ico"></i>
+    <label for="q" class="vh">검색</label>
+    <input id="q" type="search" placeholder="이름, 회사, 전화번호, 메모로 검색" autocomplete="off">
+    <button class="btn ghost clear" id="q-clear" hidden aria-label="검색어 지우기"><i data-lucide="x" class="ico"></i></button>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<!-- 실시간 카메라 (HTTPS 또는 localhost에서만) -->
+<div class="cam" id="ov-cam" hidden>
+  <div class="view">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="frame"><span>명함을 틀 안에 맞춰 주세요</span></div>
+  </div>
+  <div class="bar">
+    <button class="round" id="cam-close" aria-label="닫기"><i data-lucide="x" class="ico"></i></button>
+    <button class="shutter" id="cam-shot" aria-label="촬영"><i></i></button>
+    <button class="round" id="cam-native" aria-label="기본 카메라 앱으로 촬영"><i data-lucide="smartphone" class="ico"></i></button>
+  </div>
+</div>
+
+<!-- 카메라를 열 수 없을 때 -->
+<div class="overlay" id="ov-camhelp" hidden>
+  <div class="panel">
+    <header><h2>카메라 화면을 열 수 없습니다</h2></header>
+    <div class="body">
+      <p class="note" id="camhelp-reason" style="font-size:14px"></p>
+      <p class="note" style="font-size:14px">휴대폰 기본 카메라 앱으로 찍어도 똑같이 인식됩니다.</p>
+    </div>
+    <footer>
+      <button class="btn" data-close>닫기</button>
+      <button class="btn primary" id="camhelp-native"><i data-lucide="camera" class="ico"></i>기본 카메라로 촬영</button>
+    </footer>
+  </div>
+</div>
+
+<!-- 추가/수정 -->
+<div class="overlay" id="ov-form" hidden>
+  <form class="panel" id="form" novalidate>
+    <header>
+      <h2 id="form-title">새 명함</h2>
+      <button type="button" class="mini" data-close aria-label="닫기"><i data-lucide="x" class="ico"></i></button>
+    </header>
+    <div class="body">
+      <div class="preview" id="form-preview" hidden>
+        <img id="form-preview-img" alt="인식한 명함 사진">
+        <span>자동 인식 결과 · 틀린 곳을 고쳐 주세요</span>
+      </div>
+      <div class="field"><label for="f-name">이름 *</label><input id="f-name" autocomplete="off" placeholder="홍길동"></div>
+      <div class="row2">
+        <div class="field"><label for="f-company">회사</label><input id="f-company" autocomplete="off" placeholder="(주)캠텍"></div>
+        <div class="field"><label for="f-position">직함</label><input id="f-position" autocomplete="off" placeholder="영업팀 과장"></div>
+      </div>
+      <div class="field"><label for="f-phone">전화번호</label><input id="f-phone" type="tel" inputmode="tel" autocomplete="off" placeholder="010-0000-0000"></div>
+      <div class="field"><label for="f-email">이메일</label><input id="f-email" type="email" inputmode="email" autocomplete="off" placeholder="name@company.co.kr"></div>
+      <div class="field"><label for="f-memo">메모</label><textarea id="f-memo" placeholder="사무실 번호, 주소, 만난 곳 등"></textarea></div>
+      <details class="raw" id="form-raw" hidden><summary>인식된 원문 보기</summary><pre id="form-raw-text"></pre></details>
+      <p class="note" id="form-error" hidden style="color:var(--danger)"></p>
+    </div>
+    <footer>
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary" id="form-submit"><i data-lucide="check" class="ico"></i>저장</button>
+    </footer>
+  </form>
+</div>
+
+<!-- 인식 중 -->
+<div class="overlay" id="ov-scan" hidden>
+  <div class="panel scan" role="status" aria-live="polite">
+    <div class="shot"><img id="scan-img" alt="촬영한 명함"><div class="scanline"></div></div>
+    <h2>명함 글자를 읽는 중입니다</h2>
+    <div class="progress"><i id="scan-bar"></i></div>
+    <p id="scan-msg">준비 중입니다.</p>
+  </div>
+</div>
+
+<!-- 삭제 확인 -->
+<div class="overlay" id="ov-del" hidden>
+  <div class="panel" role="alertdialog" aria-labelledby="del-title">
+    <header><h2 id="del-title">명함 삭제</h2></header>
+    <div class="body"><p style="margin:0"><strong id="del-name"></strong> 님의 명함을 삭제합니다. 삭제하면 되돌릴 수 없습니다.</p></div>
+    <footer>
+      <button class="btn" data-close>취소</button>
+      <button class="btn danger" id="del-ok"><i data-lucide="trash-2" class="ico"></i>삭제</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const icons = () => { try { window.lucide && lucide.createIcons(); } catch (e) {} };
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const telOf = (p) => String(p || '').replace(/[^\d+]/g, '');
+  const FIELDS = ['name', 'company', 'position', 'phone', 'email', 'memo'];
+  const LOCAL_KEY = 'bizcard-standalone-v1';
+
+  let cards = load();
+  let query = '';
+  let editingId = null;
+  let deleteId = null;
+  let stream = null;
+  let previewUrl = null;
+
+  // ---------- 공통 ----------
+  function toast(msg, err = false) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (err ? ' err' : '');
+    t.textContent = msg;
+    $('toasts').appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3600);
+  }
+  function show(id) { $(id).hidden = false; document.body.classList.add('locked'); icons(); }
+  function hide(id) {
+    $(id).hidden = true;
+    if (![...document.querySelectorAll('.overlay, .cam')].some((o) => !o.hidden)) document.body.classList.remove('locked');
+  }
+  document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => hide(b.closest('.overlay').id)));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('ov-cam').hidden) closeCamera();
+    else ['ov-del', 'ov-camhelp', 'ov-form'].some((id) => !$(id).hidden && (hide(id), true));
+  });
+
+  function load() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || []; } catch (e) { return []; } }
+  function persist() {
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(cards)); }
+    catch (e) { toast('브라우저에 저장하지 못했습니다. 개인정보 보호 모드인지 확인해 주세요.', true); }
+  }
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  // ---------- 목록 ----------
+  function render() {
+    const q = query.trim().toLowerCase();
+    const shown = cards
+      .filter((c) => !q || FIELDS.some((f) => String(c[f] || '').toLowerCase().includes(q)))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    $('count').textContent = q ? `전체 ${cards.length}장 중 ${shown.length}장이 검색되었습니다.` : `명함 ${cards.length}장`;
+
+    const list = $('list');
+    if (!cards.length) {
+      list.innerHTML = `<div class="empty">
+        <i data-lucide="scan-line" class="ico"></i>
+        <h2>아직 저장된 명함이 없습니다</h2>
+        <p><b>명함 촬영</b>을 누르면 카메라가 열리고, 찍은 사진에서 이름·회사·전화번호·이메일을 자동으로 읽어 채워 줍니다. 가입이나 로그인은 필요 없습니다.</p>
+      </div>`;
+      icons(); return;
+    }
+    if (!shown.length) {
+      list.innerHTML = `<div class="empty"><i data-lucide="search-x" class="ico"></i><h2>검색 결과가 없습니다</h2><p>다른 이름이나 회사명으로 검색해 보세요.</p></div>`;
+      icons(); return;
+    }
+    list.innerHTML = `<div class="grid">${shown.map((c) => {
+      const tel = telOf(c.phone);
+      return `<article class="bcard" data-id="${esc(c.id)}">
+        <div class="co">${esc(c.company) || '&nbsp;'}</div>
+        <div><div class="nm">${esc(c.name)}</div>${c.position ? `<div class="pos">${esc(c.position)}</div>` : ''}</div>
+        <div class="lines">
+          <div class="line"><i data-lucide="phone" class="ico"></i>
+            <span class="val mono">${tel ? `<a href="tel:${esc(tel)}">${esc(c.phone)}</a>` : '-'}</span>
+            ${tel ? `<a class="mini" href="sms:${esc(tel)}" aria-label="문자 보내기" title="문자"><i data-lucide="message-square" class="ico"></i></a>` : ''}
+          </div>
+          <div class="line"><i data-lucide="mail" class="ico"></i>
+            <span class="val">${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '-'}</span>
+          </div>
+        </div>
+        ${c.memo ? `<div class="memo">${esc(c.memo)}</div>` : ''}
+        <div class="acts">
+          <button class="mini" data-act="vcf" title="휴대폰 연락처에 저장" aria-label="휴대폰 연락처에 저장"><i data-lucide="book-user" class="ico"></i></button>
+          <button class="mini" data-act="copy" title="연락처 복사" aria-label="연락처 복사"><i data-lucide="copy" class="ico"></i></button>
+          <button class="mini" data-act="edit" title="수정" aria-label="수정"><i data-lucide="pencil" class="ico"></i></button>
+          <button class="mini del" data-act="del" title="삭제" aria-label="삭제"><i data-lucide="trash-2" class="ico"></i></button>
+        </div>
+      </article>`;
+    }).join('')}</div>`;
+    icons();
+  }
+
+  $('list').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const c = cards.find((x) => x.id === b.closest('.bcard').dataset.id);
+    if (!c) return;
+    const act = b.dataset.act;
+    if (act === 'vcf') saveVcf([c], `${c.name || 'contact'}.vcf`);
+    if (act === 'copy') copy([c.name, [c.company, c.position].filter(Boolean).join(' '), c.phone, c.email, c.memo].filter(Boolean).join('\n'));
+    if (act === 'edit') openForm(c);
+    if (act === 'del') { deleteId = c.id; $('del-name').textContent = c.name; show('ov-del'); }
+  });
+
+  $('del-ok').addEventListener('click', () => {
+    cards = cards.filter((c) => c.id !== deleteId);
+    persist(); render(); hide('ov-del'); toast('삭제했습니다.');
+  });
+
+  function copy(text) {
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+      toast(ok ? '복사했습니다.' : '복사하지 못했습니다.', !ok);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(() => toast('복사했습니다.'), fallback);
+    else fallback();
+  }
+
+  // ---------- 입력 폼 ----------
+  function openForm(card = null, scanned = null, imgUrl = null, rawText = '') {
+    editingId = card ? card.id : null;
+    const src = card || scanned || {};
+    FIELDS.forEach((f) => { $('f-' + f).value = src[f] || ''; });
+    $('form-title').textContent = card ? '명함 수정' : scanned ? '인식한 명함 확인' : '새 명함';
+    $('form-preview').hidden = !imgUrl;
+    if (imgUrl) $('form-preview-img').src = imgUrl;
+    $('form-raw').hidden = !rawText;
+    $('form-raw-text').textContent = rawText;
+    $('form-error').hidden = true;
+    show('ov-form');
+    setTimeout(() => $('f-name').focus(), 50);
+  }
+
+  $('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const data = {};
+    FIELDS.forEach((f) => { data[f] = $('f-' + f).value.trim(); });
+    if (!data.name) {
+      $('form-error').textContent = '이름을 입력해 주세요.';
+      $('form-error').hidden = false; $('f-name').focus(); return;
+    }
+    data.updatedAt = Date.now();
+    if (editingId) cards = cards.map((c) => (c.id === editingId ? { ...c, ...data } : c));
+    else cards.push({ ...data, id: newId(), createdAt: Date.now() });
+    persist(); render(); hide('ov-form');
+    toast(editingId ? '수정했습니다.' : '저장했습니다.');
+  });
+  $('btn-add').addEventListener('click', () => openForm());
+
+  // ---------- 카메라 ----------
+  // 1순위: 화면 안 실시간 카메라 (HTTPS 또는 localhost에서만 브라우저가 허용)
+  // 2순위: 휴대폰 기본 카메라 앱 (<input capture>) — 일반 http 주소에서도 동작
+  function cameraReason(err) {
+    const map = {
+      NotAllowedError: '카메라 권한이 거부되었습니다. 주소창의 자물쇠(또는 ⓘ) → 권한에서 카메라를 허용하면 다음부터 화면 안에서 찍을 수 있습니다.',
+      NotFoundError: '사용할 수 있는 카메라가 없습니다.',
+      NotReadableError: '다른 앱이 카메라를 쓰고 있습니다. 그 앱을 닫고 다시 시도해 주세요.',
+      OverconstrainedError: '이 카메라가 요청한 설정을 지원하지 않습니다.',
+      SecurityError: '보안 설정 때문에 카메라가 차단되었습니다.'
+    };
+    return map[err && err.name] || '카메라를 여는 중 문제가 생겼습니다.';
+  }
+
+  async function openCamera() {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // http:// 주소로 접속한 휴대폰 → 실시간 카메라는 불가, 기본 카메라 앱으로 바로 연결
+      $('in-camera').click();
+      return;
+    }
+    try {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      } catch (err) {
+        if (err.name !== 'OverconstrainedError' && err.name !== 'NotFoundError') throw err;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+      }
+      const v = $('video');
+      v.srcObject = stream;
+      show('ov-cam');
+      await v.play().catch(() => {});
+    } catch (err) {
+      console.warn('camera:', err && err.name, err && err.message);
+      $('camhelp-reason').textContent = cameraReason(err);
+      show('ov-camhelp');
+    }
+  }
+
+  function closeCamera() {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    $('video').srcObject = null;
+    hide('ov-cam');
+  }
+
+  $('btn-camera').addEventListener('click', openCamera);
+  $('cam-close').addEventListener('click', closeCamera);
+  $('cam-native').addEventListener('click', () => { closeCamera(); $('in-camera').click(); });
+  $('camhelp-native').addEventListener('click', () => { hide('ov-camhelp'); $('in-camera').click(); });
+  $('btn-gallery').addEventListener('click', () => $('in-gallery').click());
+
+  $('cam-shot').addEventListener('click', () => {
+    const v = $('video');
+    if (!v.videoWidth) { toast('카메라가 아직 준비되지 않았습니다.', true); return; }
+    // 화면의 안내 틀(9:5) 부분만 잘라 인식률을 높인다
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const box = v.getBoundingClientRect();
+    const scale = Math.max(box.width / vw, box.height / vh);          // object-fit: cover 배율
+    const frame = document.querySelector('.cam .frame').getBoundingClientRect();
+    const sx = Math.max(0, (frame.left - box.left - (box.width - vw * scale) / 2) / scale);
+    const sy = Math.max(0, (frame.top - box.top - (box.height - vh * scale) / 2) / scale);
+    const sw = Math.min(vw - sx, frame.width / scale);
+    const sh = Math.min(vh - sy, frame.height / scale);
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(sw); cv.height = Math.round(sh);
+    cv.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    closeCamera();
+    cv.toBlob((blob) => recognize(blob), 'image/jpeg', 0.92);
+  });
+
+  ['in-camera', 'in-gallery'].forEach((id) => $(id).addEventListener('change', (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (f) recognize(f);
+  }));
+
+  // ---------- OCR (Tesseract.js, 브라우저 안에서 실행 · 무료 · 키 없음) ----------
+  let workerP = null;
+  function getWorker(onProgress) {
+    if (!window.Tesseract) return Promise.reject(new Error('OCR 엔진을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'));
+    if (!workerP) {
+      workerP = Tesseract.createWorker(['kor', 'eng'], 1, {
+        logger: (m) => workerLogger && workerLogger(m)
+      }).catch((e) => { workerP = null; throw e; });
+    }
+    workerLogger = onProgress;
+    return workerP;
+  }
+  let workerLogger = null;
+
+  // 사진을 흑백·적당한 크기로 바꿔 인식률을 높인다
+  async function prepareImage(blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((ok, fail) => { img.onload = ok; img.onerror = () => fail(new Error('사진을 열 수 없습니다. JPG나 PNG로 다시 시도해 주세요.')); img.src = url; });
+      const longSide = Math.max(img.naturalWidth, img.naturalHeight);
+      const s = Math.min(2.5, 2000 / longSide);
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.naturalWidth * s);
+      cv.height = Math.round(img.naturalHeight * s);
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      const d = ctx.getImageData(0, 0, cv.width, cv.height);
+      const p = d.data;
+      for (let i = 0; i < p.length; i += 4) {
+        const g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+        const c = Math.max(0, Math.min(255, (g - 128) * 1.35 + 128));   // 대비 조금 올림
+        p[i] = p[i + 1] = p[i + 2] = c;
+      }
+      ctx.putImageData(d, 0, 0);
+      const preview = await new Promise((ok) => {
+        const pv = document.createElement('canvas');
+        const ps = Math.min(1, 1200 / longSide);
+        pv.width = Math.round(img.naturalWidth * ps); pv.height = Math.round(img.naturalHeight * ps);
+        pv.getContext('2d').drawImage(img, 0, 0, pv.width, pv.height);
+        pv.toBlob(ok, 'image/jpeg', 0.85);
+      });
+      return { canvas: cv, preview };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function recognize(blob) {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(blob);
+    $('scan-img').src = previewUrl;
+    $('scan-bar').style.width = '3%';
+    $('scan-msg').textContent = '처음 한 번은 한국어 인식 데이터(수 MB)를 내려받아 조금 오래 걸립니다.';
+    show('ov-scan');
+    try {
+      const { canvas, preview } = await prepareImage(blob);
+      if (preview) { URL.revokeObjectURL(previewUrl); previewUrl = URL.createObjectURL(preview); $('scan-img').src = previewUrl; }
+      const worker = await getWorker((m) => {
+        const pct = Math.round((m.progress || 0) * 100);
+        if (m.status === 'recognizing text') {
+          $('scan-msg').textContent = `글자를 읽는 중 ${pct}%`;
+          $('scan-bar').style.width = `${40 + pct * 0.6}%`;
+        } else if (/load|initializ/i.test(m.status || '')) {
+          $('scan-msg').textContent = `인식 엔진 준비 중 ${pct}%`;
+          $('scan-bar').style.width = `${5 + pct * 0.35}%`;
+        }
+      });
+      const { data } = await worker.recognize(canvas);
+      const text = cleanText(data.text || '');
+      hide('ov-scan');
+      const parsed = parseCard(text);
+      if (!FIELDS.some((f) => parsed[f])) toast('글자를 거의 찾지 못했습니다. 밝은 곳에서 명함만 크게 찍어 주세요.', true);
+      else toast('자동으로 채웠습니다. 틀린 곳을 고친 뒤 저장하세요.');
+      openForm(null, parsed, previewUrl, text);
+    } catch (e) {
+      console.error(e);
+      hide('ov-scan');
+      toast(e && e.message ? e.message : '인식 중 문제가 생겼습니다.', true);
+    }
+  }
+
+  // ---------- 명함 텍스트 → 항목 분리 ----------
+  function cleanText(t) {
+    return t.split('\n')
+      .map((l) => l.replace(/[|_~`^]+/g, ' ').replace(/\s{2,}/g, ' ').trim())
+      .filter((l) => l.replace(/[^0-9A-Za-z가-힣]/g, '').length >= 2)
+      .join('\n');
+  }
+
+  const POSITIONS = ['대표이사', '대표', '회장', '부회장', '사장', '부사장', '전무', '상무', '이사', '본부장', '실장', '센터장', '부장', '차장', '과장', '대리', '주임', '사원', '팀장', '파트장', '소장', '연구소장', '수석', '책임', '선임', '연구원', '매니저', '프로', '원장', '교수', '위원',
+    'CEO', 'CTO', 'CFO', 'COO', 'President', 'Director', 'Manager', 'Engineer', 'Researcher', 'Team Leader', 'Senior', 'Staff'];
+  const COMPANY_RE = /(\(주\)|㈜|주식회사|유한회사|\(유\)|Co\.?,?\s*Ltd|Inc\.?|Corp\.?|Corporation|Company|그룹|테크|산업|전자|기술|솔루션|시스템|엔지니어링|코리아|Korea)/i;
+  const PHONE_RE = /(\+?82[\s.-]?)?\(?0\d{1,2}\)?[\s.-]?\d{3,4}[\s.-]?\d{4}|(\+?82[\s.-]?)?1[016789][\s.-]?\d{3,4}[\s.-]?\d{4}/g;
+
+  function normPhone(raw) {
+    let d = raw.replace(/[^\d+]/g, '');
+    if (d.startsWith('+82')) d = '0' + d.slice(3);
+    else if (d.startsWith('82') && d.length >= 11) d = '0' + d.slice(2);
+    if (/^1[016789]/.test(d)) d = '0' + d;
+    if (/^02\d{7,8}$/.test(d)) return d.replace(/^(02)(\d{3,4})(\d{4})$/, '$1-$2-$3');
+    if (/^0\d{9,10}$/.test(d)) return d.replace(/^(0\d{2})(\d{3,4})(\d{4})$/, '$1-$2-$3');
+    return raw.trim();
+  }
+
+  function parseCard(text) {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    const out = { name: '', company: '', position: '', phone: '', email: '', memo: '' };
+    const used = new Set();
+    const memo = [];
+
+    // 이메일
+    lines.forEach((l, i) => {
+      const m = l.replace(/\s+/g, '').match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+      if (m && !out.email) { out.email = m[0].toLowerCase(); used.add(i); }
+    });
+
+    // 전화번호: 휴대폰 우선, 나머지(사무실·팩스)는 메모
+    const phones = [];
+    lines.forEach((l, i) => {
+      const found = l.match(PHONE_RE);
+      if (!found) return;
+      // 번호마다 바로 앞 글자(예: "T.", "F.", "M.")로 종류를 판단한다
+      let from = 0;
+      found.forEach((raw) => {
+        const at = l.indexOf(raw, from);
+        const before = l.slice(Math.max(from, at - 10), at);
+        from = at + raw.length;
+        const num = normPhone(raw);
+        const label = /fax|팩스|F\s*[.:)]?\s*$/i.test(before) ? '팩스' : /tel|전화|office|사무|T\s*[.:)]?\s*$/i.test(before) ? '전화' : '';
+        phones.push({ num, label, mobile: /^01[016789]/.test(num) || /mobile|휴대|H\.?P|M\s*[.:)]|C\.?P/i.test(before) });
+      });
+      if (found.join('').replace(/\D/g, '').length >= l.replace(/\D/g, '').length - 2) used.add(i);
+    });
+    const main = phones.find((p) => p.mobile && p.label !== '팩스') || phones.find((p) => p.label !== '팩스');
+    if (main) out.phone = main.num;
+    phones.filter((p) => p !== main).forEach((p) => memo.push(`${p.label || '전화'} ${p.num}`));
+
+    // 회사
+    lines.forEach((l, i) => {
+      if (!out.company && !used.has(i) && COMPANY_RE.test(l) && l.length <= 40) { out.company = l; used.add(i); }
+    });
+
+    // 직함 + 이름 (예: "홍길동 과장", "과장 홍길동", "영업팀 과장")
+    lines.forEach((l, i) => {
+      if (used.has(i) || out.position) return;
+      const pos = POSITIONS.find((p) => new RegExp(p.length <= 3 && /[A-Z]/.test(p) ? `\\b${p}\\b` : p, 'i').test(l));
+      if (!pos) return;
+      const compact = l.replace(/\s+/g, ' ');
+      const nameMatch = compact.replace(new RegExp(pos, 'i'), ' ').match(/(^|\s)([가-힣]{2,4})(\s|$)/);
+      const isName = nameMatch && !out.name && !/(팀|부|실|본부|센터|연구소|그룹|사업)$/.test(nameMatch[2]);
+      if (isName) out.name = nameMatch[2];
+      const rest = isName ? compact.replace(nameMatch[2], '').trim() : compact;
+      out.position = rest.replace(/\s{2,}/g, ' ').trim() || pos;
+      used.add(i);
+    });
+
+    // 이름: 2~4자 한글만 있는 줄 (띄어 쓴 "홍 길 동"도 처리)
+    if (!out.name) {
+      lines.forEach((l, i) => {
+        if (out.name || used.has(i)) return;
+        const joined = /^([가-힣]\s){1,3}[가-힣]$/.test(l) ? l.replace(/\s/g, '') : l;
+        if (/^[가-힣]{2,4}$/.test(joined)) { out.name = joined; used.add(i); }
+      });
+    }
+    // 영문 이름 (예: "Gildong Hong")
+    if (!out.name) {
+      lines.forEach((l, i) => {
+        if (out.name || used.has(i)) return;
+        if (/^[A-Z][a-z]+(\s[A-Z][a-z]+){1,2}$/.test(l)) { out.name = l; used.add(i); }
+      });
+    }
+
+    // 남은 줄(주소, 홈페이지 등)은 메모로
+    lines.forEach((l, i) => { if (!used.has(i)) memo.push(l); });
+    out.memo = memo.join('\n');
+    return out;
+  }
+
+  // ---------- 검색 ----------
+  $('q').addEventListener('input', () => { query = $('q').value; $('q-clear').hidden = !query; render(); });
+  $('q-clear').addEventListener('click', () => { $('q').value = ''; query = ''; $('q-clear').hidden = true; render(); $('q').focus(); });
+
+  // ---------- vCard (휴대폰 연락처) ----------
+  const vEsc = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
+  function vcard(c) {
+    const L = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${vEsc(c.name)}`, `N:${vEsc(c.name)};;;;`];
+    if (c.company) L.push(`ORG:${vEsc(c.company)}`);
+    if (c.position) L.push(`TITLE:${vEsc(c.position)}`);
+    if (c.phone) L.push(`TEL;TYPE=CELL:${vEsc(c.phone)}`);
+    if (c.email) L.push(`EMAIL;TYPE=INTERNET:${vEsc(c.email)}`);
+    if (c.memo) L.push(`NOTE:${vEsc(c.memo)}`);
+    L.push('END:VCARD');
+    return L.join('\r\n');
+  }
+  async function saveVcf(list, filename) {
+    if (!list.length) { toast('내보낼 명함이 없습니다.', true); return; }
+    filename = filename.replace(/[\\/:*?"<>|]/g, '_');
+    const blob = new Blob([list.map(vcard).join('\r\n')], { type: 'text/vcard;charset=utf-8' });
+    try {
+      const file = new File([blob], filename, { type: 'text/vcard' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    downloadBlob(blob, filename);
+    toast('연락처 파일을 받았습니다. 파일을 열면 휴대폰 연락처에 추가됩니다.');
+  }
+  $('btn-vcf-all').addEventListener('click', () => saveVcf(cards, `명함_전체_${new Date().toISOString().slice(0, 10)}.vcf`));
+
+  // ---------- CSV ----------
+  function parseCSV(text) {
+    const rows = []; let row = [], cell = '', q = false;
+    text = text.replace(/^\uFEFF/, '');
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+        else if (ch === '"') q = false;
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((v) => v.trim()));
+  }
+  $('btn-import').addEventListener('click', () => $('in-csv').click());
+  $('in-csv').addEventListener('change', (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rows = parseCSV(String(reader.result));
+      let n = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const v = rows[i].map((x) => x.trim());
+        if (!v[0]) continue;
+        const c = { id: newId(), createdAt: Date.now() - i, updatedAt: Date.now() };
+        FIELDS.forEach((f, k) => { c[f] = v[k] || ''; });
+        cards.push(c); n++;
+      }
+      persist(); render();
+      toast(`${n}장을 가져왔습니다.`);
+    };
+    reader.readAsText(file, 'utf-8');
+  });
+  $('btn-export').addEventListener('click', () => {
+    if (!cards.length) { toast('저장할 명함이 없습니다.', true); return; }
+    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = '\uFEFF' + ['이름', '회사', '직함', '전화번호', '이메일', '메모'].join(',') + '\r\n'
+      + cards.map((c) => FIELDS.map((f) => q(c[f])).join(',')).join('\r\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `명함_${new Date().toISOString().slice(0, 10)}.csv`);
+    toast('CSV 파일을 저장했습니다. 엑셀에서 열 수 있습니다.');
+  });
+
+  // 디버그·점검용
+  window.bizcard = { parseCard, recognize };
+
+  icons();
+  render();
+})();
+</script>
+</body>
+</html>
